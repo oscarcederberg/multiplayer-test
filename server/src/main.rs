@@ -7,7 +7,6 @@ const PEER_JOIN: [u8; 4] = *b"JOIN";
 const MAX_MSG_LEN: usize = 1024;
 const CODE_LEN: usize = 5;
 
-
 struct HolePunchServer {
     socket: UdpSocket,
     hosts: HashMap<[u8; CODE_LEN], SocketAddr>,
@@ -19,7 +18,12 @@ impl HolePunchServer {
             println!("Failed to send bytes: {}", error);
             false
         } else {
-            println!("Sent {} bytes to {}: {:?}", response.len(), address, response);
+            println!(
+                "Sent {} bytes to {}: {:?}",
+                response.len(),
+                address,
+                response
+            );
             true
         }
     }
@@ -82,7 +86,6 @@ impl HolePunchServer {
 
     fn run(mut self) {
         loop {
-            // Receive messages from clients
             let mut buf = vec![0; MAX_MSG_LEN];
 
             let size;
