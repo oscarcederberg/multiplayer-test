@@ -1,6 +1,7 @@
 use rand::Rng;
 use std::collections::HashMap;
-use std::net::{SocketAddr, UdpSocket};
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
 
 const PEER_HOST: [u8; 4] = *b"HOST";
 const PEER_JOIN: [u8; 4] = *b"JOIN";
@@ -8,27 +9,25 @@ const MAX_MSG_LEN: usize = 1024;
 const CODE_LEN: usize = 5;
 
 struct HolePunchServer {
-    socket: UdpSocket,
-    hosts: HashMap<[u8; CODE_LEN], SocketAddr>,
+    hosts: HashMap<[u8; CODE_LEN], TcpStream>,
 }
 
 impl HolePunchServer {
-    fn send_response(&self, response: &[u8], address: &SocketAddr) -> bool {
-        if let Err(error) = self.socket.send_to(response, address) {
+    fn send_response(&self, response: &[u8], stream: &mut TcpStream) -> bool {
+        if let Err(error) = stream.write(response) {
             println!("Failed to send bytes: {}", error);
             false
         } else {
             println!(
-                "Sent {} bytes to {}: {:?}",
+                "Sent {} bytes: {:?}",
                 response.len(),
-                address,
                 response
             );
             true
         }
     }
 
-    fn add_host(&mut self, address: &SocketAddr) {
+    fn add_host(&mut self, mut stream: TcpStream) {
         let mut code: [u8; CODE_LEN] = [0; CODE_LEN];
         let mut rng = rand::thread_rng();
 
@@ -49,15 +48,15 @@ impl HolePunchServer {
 
         let mut response = code.to_vec();
         response.push(b'\n');
-        if self.send_response(&response, address) {
-            self.hosts.insert(code, *address);
+        if self.send_response(&response, &mut stream) {
+            self.hosts.insert(code, stream);
         }
     }
 
-    fn join_host(&mut self, msg: &[u8], size: usize, address: &SocketAddr) {
+    fn join_host(&mut self, msg: &[u8], size: usize, mut stream: TcpStream) {
         if size < PEER_JOIN.len() + CODE_LEN + 1 {
             println!("Join request too short: {:?}", msg);
-            self.send_response(b"Join request too short\n", address);
+            self.send_response(b"Join request too short\n", &mut stream);
             return;
         }
 
@@ -67,48 +66,57 @@ impl HolePunchServer {
             v.is_ascii_uppercase() && !matches!(v, b'A' | b'E' | b'I' | b'O' | b'U' | b'Y')
         }) {
             println!("Illegal join code: {:?}", code);
-            self.send_response(b"Illegal join code\n", address);
+            self.send_response(b"Illegal join code\n", &mut stream);
             return;
         }
 
         if !self.hosts.contains_key(code) {
             println!("No host available with join code: {:?}", code);
-            self.send_response(b"No host available with join code\n", address);
+            self.send_response(b"No host available with join code\n", &mut stream);
             return;
         }
 
-        let host = self.hosts.remove(code).unwrap();
+        let mut host_stream = self.hosts.remove(code).unwrap();
+        let host_address;
+        if let Ok(address) = host_stream.peer_addr() {
+            host_address = address;
+        } else {
+            println!("Failed to retreive host address from stream");
+            return;
+        }
 
-        if self.send_response(format!("Client: {:?}", address).as_bytes(), &host) {
-            self.send_response(format!("Host: {:?}", host).as_bytes(), address);
+        let peer_address;
+        if let Ok(address) = stream.peer_addr() {
+            peer_address = address;
+        } else {
+            println!("Failed to retreive peer address from stream");
+            return;
+        }
+
+        if self.send_response(format!("Client: {:?}", peer_address).as_bytes(), &mut host_stream) {
+            self.send_response(format!("Host: {:?}", host_address).as_bytes(), &mut stream);
         }
     }
 
-    fn run(mut self) {
-        loop {
-            let mut buf = vec![0; MAX_MSG_LEN];
+    fn handle_stream(&mut self, mut stream: TcpStream) {
+        let mut buffer = [0u8; MAX_MSG_LEN];
+        let message;
+        let message_size;
+        if let Ok(size) = stream.read(&mut buffer) {
+            message_size = size;
+            message = &buffer[..size];
+            println!("Received {} bytes: {:?}", message_size, message);
+        } else {
+            println!("Failed to receive bytes");
+            return;
+        }
 
-            let size;
-            let peer_address;
-            if let Ok((recv_size, recv_address)) = self.socket.recv_from(&mut buf) {
-                size = recv_size;
-                peer_address = recv_address;
-            } else {
-                println!("Failed to receive bytes");
-                continue;
-            }
-
-            let msg = &buf[..size];
-
-            println!("Received {} bytes from {}: {:?}", size, peer_address, msg);
-
-            if msg.starts_with(&PEER_HOST) {
-                println!("HOST request received");
-                self.add_host(&peer_address);
-            } else if msg.starts_with(&PEER_JOIN) {
-                println!("JOIN request received");
-                self.join_host(msg, size, &peer_address);
-            }
+        if message.starts_with(&PEER_HOST) {
+            println!("HOST request received");
+            self.add_host(stream);
+        } else if message.starts_with(&PEER_JOIN) {
+            println!("JOIN request received");
+            self.join_host(message, message_size, stream);
         }
     }
 }
@@ -116,11 +124,16 @@ impl HolePunchServer {
 fn main() {
     let port = 8777;
     let address = format!("127.0.0.1:{}", port);
-    let socket = UdpSocket::bind(&address).unwrap();
+    let listener = TcpListener::bind(&address).unwrap();
     println!("Hole Punching Server listening on {}", address);
 
     let hosts = HashMap::new();
-    let server = HolePunchServer { socket, hosts };
+    let mut server = HolePunchServer { hosts };
 
-    server.run();
+    for stream in listener.incoming() {
+        match stream {
+            Ok(stream) => server.handle_stream(stream),
+            _ => ()
+        }
+    }
 }
