@@ -4,6 +4,7 @@ import flixel.FlxG;
 import flixel.FlxSprite;
 import flixel.FlxState;
 import flixel.FlxSubState;
+import flixel.addons.ui.FlxInputText;
 import flixel.text.FlxText;
 import flixel.ui.FlxButton;
 import flixel.util.FlxColor;
@@ -42,6 +43,48 @@ class HostState extends FlxSubState
 	}
 }
 
+class JoinState extends FlxSubState
+{
+	var codeTextInput:FlxInputText;
+
+	override function create()
+	{
+		super.create();
+
+		var background = new FlxSprite();
+		background.makeGraphic(Std.int(3 / 4 * FlxG.width), Std.int(2 / 3 * FlxG.height), FlxColor.BLACK);
+		background.screenCenter(XY);
+
+		var hostTitle = new FlxText(0, 0, 0, "Join Game", 32);
+		hostTitle.screenCenter(XY).y -= 80;
+
+		var lobbyInfoText = new FlxText(0, 0, 0, "Lobby code: #####", 16);
+
+		codeTextInput = new FlxInputText(0, 0, 0, "#####", 16, FlxColor.GREEN, FlxColor.TRANSPARENT);
+		codeTextInput.bold = true;
+		codeTextInput.maxLength = 6;
+		codeTextInput.forceCase = FlxInputText.UPPER_CASE;
+
+		lobbyInfoText.screenCenter(XY);
+		lobbyInfoText.text = "Lobby code: ";
+		codeTextInput.screenCenter(XY).x = lobbyInfoText.x + lobbyInfoText.width;
+
+		var exitButton = new FlxButton(0, 0, "Cancel", onExitButtonClicked);
+		exitButton.screenCenter(XY).y += 64;
+
+		add(background);
+		add(hostTitle);
+		add(lobbyInfoText);
+		add(codeTextInput);
+		add(exitButton);
+	}
+
+	private function onExitButtonClicked()
+	{
+		close();
+	}
+}
+
 class MenuState extends FlxState
 {
 	override public function create()
@@ -68,5 +111,8 @@ class MenuState extends FlxState
 		openSubState(new HostState());
 	}
 
-	private function onJoinClicked() {}
+	private function onJoinClicked()
+	{
+		openSubState(new JoinState());
+	}
 }
